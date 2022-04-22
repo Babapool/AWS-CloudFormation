@@ -1,0 +1,162 @@
+Parameters:
+  instanceType:
+    Type: String
+    Description: The type of instance to be launched.
+    Default: t2.micro
+    AllowedValues:
+      - t1.micro
+      - t1.small
+      - t2.small
+      - t2.micro
+
+  keyPairOptions:
+    Type: String
+    Description: The name of the key pair to use while launching the instance
+    Default: MyKeyPair
+    AllowedValues:
+      - myKeyPairs
+      - testkeypair
+      - MyKeyPair
+  
+  availabilityZones:
+    Type: String
+    Description: The availability zones to launch the subnet into.
+    Default: us-east-1a
+    AllowedValues:
+      - us-east-1a
+      - us-east-1b
+      - us-east-1c
+      - us-east-1d
+
+Mappings: 
+  regionAMIMapping: 
+    us-east-1: 
+      "HVM64": "ami-0ff8a91507f77f867"
+    us-west-1: 
+      "HVM64": "ami-0bdb828fd58c52235"
+    eu-west-1: 
+      "HVM64": "ami-047bb4163c506cd98"
+    ap-southeast-1: 
+      "HVM64": "ami-08569b978cc4dfa10"
+    ap-northeast-1: 
+      "HVM64": "ami-06cd52961ce9f0d85"
+    ap-south-1:
+      "HVM64": "ami-04893cdb768d0f9ee"
+
+Resources:
+  createVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 172.35.0.0/16
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+
+  createPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref createVPC
+      CidrBlock: 172.35.32.0/20
+      AvailabilityZone: !Ref availabilityZones
+      MapPublicIpOnLaunch: true
+
+  createPrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref createVPC
+      CidrBlock: 172.35.48.0/20
+      AvailabilityZone: !Ref availabilityZones
+      MapPublicIpOnLaunch: false
+
+  createInternetGateway:
+    Type: AWS::EC2::InternetGateway
+  
+  attachInternetGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties: 
+      InternetGatewayId: !Ref createInternetGateway
+      VpcId: !Ref createVPC
+  
+  createRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref createVPC
+
+  routeTrafficToInternetGateway:
+    Type: AWS::EC2::Route
+    DependsOn: attachInternetGateway
+    Properties:
+      RouteTableId: !Ref createRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref createInternetGateway
+
+  associateRouteWithSubnet:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref createRouteTable
+      SubnetId: !Ref createPublicSubnet
+
+  createSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Provide HTTP,PING,SSH access
+      VpcId: !Ref createVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  launchPublicEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId:  !FindInMap [regionAMIMapping, !Ref AWS::Region, HVM64]
+      KeyName: !Ref keyPairOptions
+      InstanceType: !Ref instanceType
+      SubnetId: !Ref createPublicSubnet
+      SecurityGroupIds:
+        - Ref: createSecurityGroup
+      Tags:
+        - Key: Name
+          Value: PublicInstance
+  
+  launchPrivateEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId:  !FindInMap [regionAMIMapping, !Ref AWS::Region, HVM64]
+      KeyName: !Ref keyPairOptions
+      InstanceType: !Ref instanceType
+      SubnetId: !Ref createPrivateSubnet
+      SecurityGroupIds: 
+        - Ref: createSecurityGroup
+      Tags:
+        - Key: Name
+          Value: PrivateInstance
+
+
+Outputs:
+    publicInstanceId:
+      Description: The instance ID of public instance
+      Value: !Ref launchPublicEC2Instance
+
+    privateInstanceId:
+      Description: The instance ID of private instance
+      Value: !Ref launchPrivateEC2Instance
+
+    publicIPofInstance:
+      Description: The public IP of public instance
+      Value: !GetAtt launchPublicEC2Instance.PublicIp
+
+    privateIPofInstance:
+      Description: The private IP of private instance
+      Value: !GetAtt launchPrivateEC2Instance.PrivateIp
+
+
+
